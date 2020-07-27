@@ -1,0 +1,4 @@
+go get code.cloudfoundry.org/bytefmt
+go get github.com/aws/aws-sdk-go/aws
+go get github.com/jmespath/go-jmespath
+go get github.com/pivotal-golang/bytefmt
