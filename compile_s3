@@ -1,4 +1,12 @@
+apt update
+apt install vim git
+
 go get code.cloudfoundry.org/bytefmt
 go get github.com/aws/aws-sdk-go/aws
 go get github.com/jmespath/go-jmespath
-go get github.com/pivotal-golang/bytefmt
+
+#go get github.com/pivotal-golang/bytefmt
+
+export PATH=$PATH:/usr/local/go/bin
+
+tar -C /usr/local -xzf go1.14.6.linux-amd64.tar.gz
