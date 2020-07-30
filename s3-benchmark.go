@@ -78,7 +78,7 @@ func getS3Client() *s3.S3 {
 	// Build the rest of the configuration
 	awsConfig := &aws.Config{
 		Region:               aws.String(region),
-		Endpoint:             aws.String(url_host),
+		//Endpoint:             aws.String(url_host),
 		Credentials:          creds,
 		LogLevel:             &loglevel,
 		S3ForcePathStyle:     aws.Bool(true),
@@ -330,69 +330,6 @@ func main() {
 	deleteAllObjects()
 
 	// Loop running the tests
-	for loop := 1; loop <= loops; loop++ {
-
-		// reset counters
-		upload_count = 0
-		upload_slowdown_count = 0
-		download_count = 0
-		download_slowdown_count = 0
-		delete_count = 0
-		delete_slowdown_count = 0
-
-		// Run the upload case
-		running_threads = int32(threads)
-		starttime := time.Now()
-		endtime = starttime.Add(time.Second * time.Duration(duration_secs))
-		for n := 1; n <= threads; n++ {
-			go runUpload(n)
-		}
-
-		// Wait for it to finish
-		for atomic.LoadInt32(&running_threads) > 0 {
-			time.Sleep(time.Millisecond)
-		}
-		upload_time := upload_finish.Sub(starttime).Seconds()
-
-		bps := float64(uint64(upload_count)*object_size) / upload_time
-		logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
-			loop, upload_time, upload_count, bytefmt.ByteSize(uint64(bps)), float64(upload_count)/upload_time, upload_slowdown_count))
-
-		// Run the download case
-		running_threads = int32(threads)
-		starttime = time.Now()
-		endtime = starttime.Add(time.Second * time.Duration(duration_secs))
-		for n := 1; n <= threads; n++ {
-			go runDownload(n)
-		}
-
-		// Wait for it to finish
-		for atomic.LoadInt32(&running_threads) > 0 {
-			time.Sleep(time.Millisecond)
-		}
-		download_time := download_finish.Sub(starttime).Seconds()
-
-		bps = float64(uint64(download_count)*object_size) / download_time
-		logit(fmt.Sprintf("Loop %d: GET time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
-			loop, download_time, download_count, bytefmt.ByteSize(uint64(bps)), float64(download_count)/download_time, download_slowdown_count))
-
-		// Run the delete case
-		running_threads = int32(threads)
-		starttime = time.Now()
-		endtime = starttime.Add(time.Second * time.Duration(duration_secs))
-		for n := 1; n <= threads; n++ {
-			go runDelete(n)
-		}
-
-		// Wait for it to finish
-		for atomic.LoadInt32(&running_threads) > 0 {
-			time.Sleep(time.Millisecond)
-		}
-		delete_time := delete_finish.Sub(starttime).Seconds()
-
-		logit(fmt.Sprintf("Loop %d: DELETE time %.1f secs, %.1f deletes/sec. Slowdowns = %d",
-			loop, delete_time, float64(upload_count)/delete_time, delete_slowdown_count))
-	}
 
 	// All done
 }
