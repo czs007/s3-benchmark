@@ -4,12 +4,12 @@
 package main
 
 import (
-//	"bytes"
+	"bytes"
 //	"crypto/hmac"
 	"crypto/md5"
 //	"crypto/sha1"
-	"crypto/tls"
-	"encoding/base64"
+//	"crypto/tls"
+//	"encoding/base64"
 	"flag"
 	"fmt"
 	"code.cloudfoundry.org/bytefmt"
@@ -17,31 +17,29 @@ import (
 //	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-//	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 //	"github.com/pivotal-golang/bytefmt"
 //	"io"
 //	"io/ioutil"
 	"log"
 	"math/rand"
-	"net"
+//	"net"
 	"net/http"
 	"os"
 //	"sort"
 //	"strconv"
 //	"strings"
 //	"sync"
-//	"sync/atomic"
+	"sync/atomic"
 	"time"
 )
 
 // Global variables
-//var access_key, secret_key, url_host, bucket, region string
 var bucket string
 var duration_secs, threads, loops int
 var object_size uint64
 var object_data []byte
-var object_data_md5 string
-var running_threads, upload_count, download_count, delete_count, upload_slowdown_count, download_slowdown_count, delete_slowdown_count int32
+var running_threads, upload_count, download_count, upload_slowdown_count, download_slowdown_count int32
 var endtime, upload_finish, download_finish, delete_finish time.Time
 
 func logit(msg string) {
@@ -53,62 +51,80 @@ func logit(msg string) {
 	}
 }
 
-// Our HTTP transport used for the roundtripper below
-var HTTPTransport http.RoundTripper = &http.Transport{
-	Proxy: http.ProxyFromEnvironment,
-	Dial: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-	}).Dial,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 0,
-	// Allow an unlimited number of idle connections
-	MaxIdleConnsPerHost: 4096,
-	MaxIdleConns:        0,
-	// But limit their idle time
-	IdleConnTimeout: time.Minute,
-	// Ignore TLS errors
-	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-}
+func _getFile(sess *session.Session) {
+	atomic.AddInt32(&download_count, 1)
+	objnum := rand.Int31n(download_count) + 1
+	filename := fmt.Sprintf("Object-%d", objnum)
+	downloader := s3manager.NewDownloader(sess)
+	buff := &aws.WriteAtBuffer{}
 
-var httpClient = &http.Client{Transport: HTTPTransport}
+	_, err := downloader.Download(buff,
+	&s3.GetObjectInput{
+	    Bucket: &bucket,
+	    Key:    &filename,
+	})
 
-func getS3Client() *s3.S3 {
-	// Build our config
-//	creds := credentials.NewStaticCredentials(access_key, secret_key, "")
-	loglevel := aws.LogOff
-	// Build the rest of the configuration
-	awsConfig := &aws.Config{
-		Region:               aws.String("cn-northwest-1"),
-		LogLevel:             &loglevel,
-		S3ForcePathStyle:     aws.Bool(true),
-		S3Disable100Continue: aws.Bool(true),
-		// Comment following to use default transport
-		HTTPClient: &http.Client{Transport: HTTPTransport},
-	}
-	session := session.New(awsConfig)
-	client := s3.New(session)
-	if client == nil {
-		log.Fatalf("FATAL: Unable to create new client.")
-	}
-	// Return success
-	return client
-}
-
-func createBucket(ignore_errors bool) {
-	// Get a client
-	client := getS3Client()
-	// Create our bucket (may already exist without error)
-	in := &s3.CreateBucketInput{Bucket: aws.String(bucket)}
-	if _, err := client.CreateBucket(in); err != nil {
-		if ignore_errors {
-			log.Printf("WARNING: createBucket %s error, ignoring %v", bucket, err)
-		} else {
-			log.Fatalf("FATAL: Unable to create bucket %s (is your access and secret correct?): %v", bucket, err)
-		}
+	if err != nil {
+		atomic.AddInt32(&download_slowdown_count, 1)
 	}
 }
 
+func runGetFile(thread_num int) {
+//	sess := session.Must(session.NewSessionWithOptions(session.Options{
+//	SharedConfigState: session.SharedConfigEnable,
+//	}))
+
+	for time.Now().Before(endtime) {
+		atomic.AddInt32(&download_count, 1)
+		objnum := rand.Int31n(download_count) + 1
+		filename := fmt.Sprintf("%d, Object-%d", download_count, objnum)
+		fmt.Println("getFile, %s", filename)
+		time.Sleep(time.Millisecond * 20)
+//		_getFile(sess)
+		//fmt.Println("run getFile")
+	}
+
+	// Remember last done time
+	download_finish = time.Now()
+	// One less thread
+	atomic.AddInt32(&running_threads, -1)
+}
+
+func _putFile(sess *session.Session) {
+
+    objnum := atomic.AddInt32(&upload_count, 1)
+    filename := fmt.Sprintf("Object-%d", objnum)
+    file:= bytes.NewReader(object_data)
+
+    uploader := s3manager.NewUploader(sess)
+    _, err := uploader.Upload(&s3manager.UploadInput{
+        Bucket: &bucket,
+        Key:    &filename,
+        Body:   file,
+    })
+    if err != nil {
+	atomic.AddInt32(&upload_slowdown_count, 1)
+    }
+
+}
+
+func runPutFile(thread_num int) {
+//	sess := session.Must(session.NewSessionWithOptions(session.Options{
+//	SharedConfigState: session.SharedConfigEnable,
+//	}))
+
+	for time.Now().Before(endtime) {
+		atomic.AddInt32(&upload_count, 1)
+		time.Sleep(time.Millisecond * 20)
+		//_putFile(sess)
+		//fmt.Println("run putFile")
+	}
+
+	// Remember last done time
+	upload_finish = time.Now()
+	// One less thread
+	atomic.AddInt32(&running_threads, -1)
+}
 
 func main() {
 	// Hello
@@ -116,7 +132,7 @@ func main() {
 	// Parse command line
 	myflag := flag.NewFlagSet("myflag", flag.ExitOnError)
 	myflag.StringVar(&bucket, "b", "zilliz-hz01", "Bucket for testing")
-	myflag.IntVar(&duration_secs, "d", 60, "Duration of each test in seconds")
+	myflag.IntVar(&duration_secs, "d", 1, "Duration of each test in seconds")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
 	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
 	var sizeArg string
@@ -139,13 +155,53 @@ func main() {
 	rand.Read(object_data)
 	hasher := md5.New()
 	hasher.Write(object_data)
-	object_data_md5 = base64.StdEncoding.EncodeToString(hasher.Sum(nil))
+//	runPutFile()
+//	runGetFile()
 
-	// Create the bucket and delete all the objects
-	fmt.Println("Start to create Bucket!")
-	createBucket(true)
-	fmt.Println("Create Bucket Done!")
-	// Loop running the tests
+	// reset counters
+	upload_count = 0
+	upload_slowdown_count = 0
+	download_count = 0
+	download_slowdown_count = 0
+
+	// Run the upload case
+	running_threads = int32(threads)
+
+	starttime := time.Now()
+	endtime = starttime.Add(time.Second * time.Duration(duration_secs))
+
+	for n := 1; n <= threads; n++ {
+		go runPutFile(n)
+	}
+
+	// Wait for it to finish
+	for atomic.LoadInt32(&running_threads) > 0 {
+		time.Sleep(time.Millisecond)
+	}
+	upload_time := upload_finish.Sub(starttime).Seconds()
+
+	loop := 1
+	bps := float64(uint64(upload_count)*object_size) / upload_time
+	logit(fmt.Sprintf("Loop %d: PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
+		loop, upload_time, upload_count, bytefmt.ByteSize(uint64(bps)), float64(upload_count)/upload_time, upload_slowdown_count))
+
+	// Run the download case
+	running_threads = int32(threads)
+	starttime = time.Now()
+	endtime = starttime.Add(time.Second * time.Duration(duration_secs))
+	for n := 1; n <= threads; n++ {
+		go runGetFile(n)
+	}
+
+	// Wait for it to finish
+	for atomic.LoadInt32(&running_threads) > 0 {
+		time.Sleep(time.Millisecond)
+	}
+	download_time := download_finish.Sub(starttime).Seconds()
+
+	bps = float64(uint64(download_count)*object_size) / download_time
+	logit(fmt.Sprintf("Loop %d: GET time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
+		loop, download_time, download_count, bytefmt.ByteSize(uint64(bps)), float64(download_count)/download_time, download_slowdown_count))
 
 	// All done
 }
