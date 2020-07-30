@@ -36,11 +36,11 @@ import (
 
 // Global variables
 var bucket string
-var duration_secs, threads, loops int
+var duration_secs, threads int
 var object_size uint64
 var object_data []byte
 var running_threads, upload_count, download_count, upload_slowdown_count, download_slowdown_count int32
-var endtime, upload_finish, download_finish, delete_finish time.Time
+var endtime, upload_finish, download_finish time.Time
 
 func logit(msg string) {
 	fmt.Println(msg)
@@ -76,9 +76,6 @@ func runGetFile(thread_num int) {
 
 	for time.Now().Before(endtime) {
 		atomic.AddInt32(&download_count, 1)
-		objnum := rand.Int31n(download_count) + 1
-		filename := fmt.Sprintf("%d, Object-%d", download_count, objnum)
-		fmt.Println("getFile, %s", filename)
 		time.Sleep(time.Millisecond * 20)
 //		_getFile(sess)
 		//fmt.Println("run getFile")
@@ -134,7 +131,6 @@ func main() {
 	myflag.StringVar(&bucket, "b", "zilliz-hz01", "Bucket for testing")
 	myflag.IntVar(&duration_secs, "d", 1, "Duration of each test in seconds")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
-	myflag.IntVar(&loops, "l", 1, "Number of times to repeat test")
 	var sizeArg string
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	if err := myflag.Parse(os.Args[1:]); err != nil {
@@ -147,16 +143,14 @@ func main() {
 		log.Fatalf("Invalid -z argument for object size: %v", err)
 	}
 
-	logit(fmt.Sprintf("Parameters: bucket=%s, duration=%d, threads=%d, loops=%d, size=%s",
-		bucket, duration_secs, threads, loops, sizeArg))
+	logit(fmt.Sprintf("Parameters: bucket=%s, duration=%d, threads=%d, size=%s",
+		bucket, duration_secs, threads, sizeArg))
 
 	// Initialize data for the bucket
 	object_data = make([]byte, object_size)
 	rand.Read(object_data)
 	hasher := md5.New()
 	hasher.Write(object_data)
-//	runPutFile()
-//	runGetFile()
 
 	// reset counters
 	upload_count = 0
