@@ -13,14 +13,14 @@ import (
 	"flag"
 	"fmt"
 	"code.cloudfoundry.org/bytefmt"
-	"github.com/aws/aws-sdk-go/aws"
+//	"github.com/aws/aws-sdk-go/aws"
 //	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 //	"github.com/pivotal-golang/bytefmt"
 //	"io"
-//	"io/ioutil"
+	"io/ioutil"
 	"log"
 	"math/rand"
 //	"net"
@@ -34,13 +34,26 @@ import (
 	"time"
 )
 
+type DummyWriteBuffer struct {
+}
+
+func (fw DummyWriteBuffer) WriteAt(p []byte, offset int64) (n int, err error) {
+    // ignore 'offset' because we forced sequential downloads
+    return ioutil.Discard.Write(p)
+}
+
+
 // Global variables
 var bucket string
+var already_upload int
 var duration_secs, threads int
 var object_size uint64
 var object_data []byte
 var running_threads, upload_count, download_count, upload_slowdown_count, download_slowdown_count int32
 var endtime, upload_finish, download_finish time.Time
+
+var skip_download int
+var skip_upload int
 
 func logit(msg string) {
 	fmt.Println(msg)
@@ -58,8 +71,8 @@ func _getFile(sess *session.Session) {
 	filename := fmt.Sprintf("Object-%d", objnum)
 	//fmt.Println("run getFile ", filename)
 	downloader := s3manager.NewDownloader(sess)
-	buff := &aws.WriteAtBuffer{}
-
+	//buff := &aws.WriteAtBuffer{}
+	buff := &DummyWriteBuffer{}
 	_, err := downloader.Download(buff,
 	&s3.GetObjectInput{
 	    Bucket: &bucket,
@@ -70,6 +83,7 @@ func _getFile(sess *session.Session) {
 		atomic.AddInt32(&download_slowdown_count, 1)
 		//fmt.Println(err)
 	}
+	//fmt.Println("run getFile:%s done", filename)
 }
 
 func runGetFile(thread_num int) {
@@ -135,6 +149,10 @@ func main() {
 	myflag.StringVar(&bucket, "b", "zilliz-hz01", "Bucket for testing")
 	myflag.IntVar(&duration_secs, "d", 1, "Duration of each test in seconds")
 	myflag.IntVar(&threads, "t", 1, "Number of threads to run")
+	myflag.IntVar(&already_upload, "upload_count", 0, "uploaded number")
+	myflag.IntVar(&skip_upload, "skip_upload", 1, " 1 skip upload, 0 not skip")
+	myflag.IntVar(&skip_download, "skip_download", 1, " 1 skip download, 0 not skip")
+
 	var sizeArg string
 	myflag.StringVar(&sizeArg, "z", "1M", "Size of objects in bytes with postfix K, M, and G")
 	if err := myflag.Parse(os.Args[1:]); err != nil {
@@ -166,7 +184,7 @@ func main() {
 
 	test_upload := 1
 	// Run the upload case
-	if test_upload == 1 {
+	if skip_upload == 0 && test_upload == 1 {
 		starttime := time.Now()
 		endtime = starttime.Add(time.Second * time.Duration(duration_secs))
 
@@ -183,13 +201,21 @@ func main() {
 		bps := float64(uint64(upload_count)*object_size) / upload_time
 		logit(fmt.Sprintf("PUT time %.1f secs, objects = %d, speed = %sB/sec, %.1f operations/sec. Slowdowns = %d",
 			upload_time, upload_count, bytefmt.ByteSize(uint64(bps)), float64(upload_count)/upload_time, upload_slowdown_count))
+	} else {
+		if already_upload > 0 && upload_count <= 0 {
+			upload_count  = int32(already_upload)
+		}
+
 	}
 
+	fmt.Println(" upload_count :", upload_count)
+	fmt.Println(" skip_download :", skip_download)
+	fmt.Println(" skip_upload :", skip_upload)
 
 	// Run the download case
 	test_download := 1
 	running_threads = int32(threads)
-	if test_download == 1 {
+	if skip_download == 0 && test_download == 1 {
 
 		starttime := time.Now()
 		endtime = starttime.Add(time.Second * time.Duration(duration_secs))
